@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { SIZES, type SizeKey } from "@/lib/constants"
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!)
+}
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
 
 export async function POST(req: NextRequest) {
   try {
+    const stripe = getStripe()
     const body = await req.json()
     const { product_id, product_slug, size, email, shipping, method } = body
 
