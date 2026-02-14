@@ -1,0 +1,73 @@
+import { NextRequest, NextResponse } from "next/server"
+import Stripe from "stripe"
+import { SIZES, type SizeKey } from "@/lib/constants"
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const { product_id, product_slug, size, email, shipping, method } = body
+
+    if (!product_id || !size || !email || !shipping) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    const sizeConfig = SIZES[size as SizeKey]
+    if (!sizeConfig) {
+      return NextResponse.json({ error: "Invalid size" }, { status: 400 })
+    }
+
+    if (method === "stripe") {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        mode: "payment",
+        customer_email: email,
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `BRAINROTHAUS Tapestry — ${product_slug}`,
+                description: `${sizeConfig.label} Wall Tapestry. Limited Edition.`,
+              },
+              unit_amount: sizeConfig.price * 100,
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          product_id,
+          product_slug,
+          size,
+          shipping_name: shipping.name,
+          shipping_address1: shipping.address1,
+          shipping_address2: shipping.address2 || "",
+          shipping_city: shipping.city,
+          shipping_state: shipping.state,
+          shipping_zip: shipping.zip,
+          shipping_country: shipping.country,
+        },
+        success_url: `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${SITE_URL}/drop/${product_slug}`,
+      })
+
+      return NextResponse.json({ url: session.url })
+    }
+
+    // Encrypto crypto payment — Phase 2
+    if (method === "encrypto") {
+      return NextResponse.json({ error: "Crypto payments coming soon" }, { status: 400 })
+    }
+
+    return NextResponse.json({ error: "Invalid payment method" }, { status: 400 })
+  } catch (error) {
+    console.error("Checkout error:", error)
+    return NextResponse.json(
+      { error: "Failed to create checkout session" },
+      { status: 500 }
+    )
+  }
+}
