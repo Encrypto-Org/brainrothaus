@@ -1,15 +1,15 @@
 "use client"
 
-import { useState, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowLeft, CreditCard, Loader2, Wallet, Copy, Check, ExternalLink } from "lucide-react"
+import { ArrowLeft, CreditCard, Loader2, Wallet, Copy, Check, ExternalLink, Trash2, ShoppingBag } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
-import { MOCK_PRODUCTS } from "@/lib/mock-products"
-import { SIZES, SPRING, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
+import { useCart } from "@/lib/cart"
+import { SIZES, SPRING, CRYPTO_PAYMENT } from "@/lib/constants"
 import { toast } from "sonner"
 
 type PaymentMethod = "stripe" | "encrypto"
@@ -121,13 +121,10 @@ function CryptoPaymentPanel({ amount, orderId }: { amount: number; orderId: stri
   )
 }
 
-function CheckoutForm() {
-  const searchParams = useSearchParams()
+export default function CheckoutPage() {
   const router = useRouter()
-  const productSlug = searchParams.get("product")
-  const sizeParam = (searchParams.get("size") || "small") as SizeKey
+  const { items, removeItem, getTotal, clearCart } = useCart()
 
-  const product = MOCK_PRODUCTS.find(p => p.slug === productSlug)
   const [loading, setLoading] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe")
   const [cryptoOrderId, setCryptoOrderId] = useState<string | null>(null)
@@ -144,20 +141,22 @@ function CheckoutForm() {
     country: "US",
   })
 
-  if (!product) {
+  const total = getTotal()
+
+  if (items.length === 0 && !showCryptoPayment) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-black text-white mb-2">NO PRODUCT SELECTED</h1>
+          <ShoppingBag className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
+          <h1 className="text-2xl font-black text-white mb-2">YOUR BAG IS EMPTY</h1>
+          <p className="text-zinc-500 mb-4 text-sm">Add some drops before checking out.</p>
           <Link href="/" className="text-[#39ff14] font-mono text-sm hover:underline">
-            BACK TO DROPS
+            SHOP DROPS
           </Link>
         </div>
       </div>
     )
   }
-
-  const price = SIZES[sizeParam].price
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -180,9 +179,13 @@ function CheckoutForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product_id: product.id,
-          product_slug: product.slug,
-          size: sizeParam,
+          items: items.map((item) => ({
+            product_slug: item.productSlug,
+            product_title: item.productTitle,
+            size: item.size,
+            price: item.price,
+            quantity: item.quantity,
+          })),
           email: form.email,
           shipping: {
             name: form.name,
@@ -200,6 +203,7 @@ function CheckoutForm() {
       const data = await res.json()
 
       if (data.url) {
+        clearCart()
         window.location.href = data.url
       } else {
         toast.error(data.error || "Failed to create checkout session")
@@ -220,9 +224,13 @@ function CheckoutForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product_id: product.id,
-          product_slug: product.slug,
-          size: sizeParam,
+          items: items.map((item) => ({
+            product_slug: item.productSlug,
+            product_title: item.productTitle,
+            size: item.size,
+            price: item.price,
+            quantity: item.quantity,
+          })),
           email: form.email,
           shipping: {
             name: form.name,
@@ -242,6 +250,7 @@ function CheckoutForm() {
       if (data.order_id) {
         setCryptoOrderId(data.order_id)
         setShowCryptoPayment(true)
+        clearCart()
       } else {
         toast.error(data.error || "Failed to create crypto payment")
       }
@@ -293,22 +302,65 @@ function CheckoutForm() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
             {/* Order summary */}
             <div className="md:col-span-2">
-              <div className="sticky top-24 p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
-                <div className="relative aspect-square rounded-lg overflow-hidden mb-4">
-                  <Image
-                    src={product.image_url}
-                    alt={product.title}
-                    fill
-                    className="object-cover"
-                  />
+              <div className="sticky top-24 space-y-4">
+                <div className="p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
+                  <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-4">
+                    ORDER SUMMARY ({items.reduce((a, i) => a + i.quantity, 0)} {items.reduce((a, i) => a + i.quantity, 0) === 1 ? "ITEM" : "ITEMS"})
+                  </span>
+
+                  <div className="space-y-4">
+                    {items.map((item) => (
+                      <div
+                        key={`${item.productSlug}-${item.size}`}
+                        className="flex gap-3"
+                      >
+                        {/* Thumbnail */}
+                        <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-zinc-800/50 shrink-0">
+                          <Image
+                            src={item.imageUrl}
+                            alt={item.productTitle}
+                            fill
+                            className="object-cover"
+                            sizes="64px"
+                          />
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-white text-sm font-bold leading-tight truncate">
+                            {item.productTitle}
+                          </h3>
+                          <p className="text-zinc-500 text-[10px] font-mono mt-0.5">
+                            {SIZES[item.size].label} x{item.quantity}
+                          </p>
+                        </div>
+
+                        {/* Price + remove */}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="text-white font-mono font-bold text-sm">
+                            ${item.price * item.quantity}
+                          </span>
+                          <button
+                            onClick={() => removeItem(item.productSlug, item.size)}
+                            className="text-zinc-600 hover:text-red-400 transition-colors p-0.5"
+                            aria-label="Remove item"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-zinc-500 text-xs font-mono">TOTAL</span>
+                      <span className="text-white font-black text-xl tabular-nums">${total}</span>
+                    </div>
+                    <p className="text-zinc-600 text-[10px] font-mono mt-2">FREE SHIPPING INCLUDED</p>
+                  </div>
                 </div>
-                <h3 className="text-white font-bold text-sm mb-1">{product.title}</h3>
-                <p className="text-zinc-500 text-xs font-mono mb-3">{SIZES[sizeParam].label}</p>
-                <div className="flex items-center justify-between pt-3 border-t border-zinc-800/50">
-                  <span className="text-zinc-500 text-xs font-mono">TOTAL</span>
-                  <span className="text-white font-black text-xl">${price}</span>
-                </div>
-                <p className="text-zinc-600 text-[10px] font-mono mt-2">FREE SHIPPING INCLUDED</p>
               </div>
             </div>
 
@@ -318,7 +370,7 @@ function CheckoutForm() {
                 {showCryptoPayment ? (
                   <CryptoPaymentPanel
                     key="crypto-payment"
-                    amount={price}
+                    amount={total}
                     orderId={cryptoOrderId}
                   />
                 ) : (
@@ -477,19 +529,19 @@ function CheckoutForm() {
                         ) : paymentMethod === "stripe" ? (
                           <>
                             <CreditCard className="w-5 h-5 mr-2" />
-                            PAY ${price} WITH CARD
+                            PAY ${total} WITH CARD
                           </>
                         ) : (
                           <>
                             <Wallet className="w-5 h-5 mr-2" />
-                            PAY {price} USDC
+                            PAY {total} USDC
                           </>
                         )}
                       </Button>
                       <p className="text-zinc-600 text-[10px] font-mono text-center mt-3">
                         {paymentMethod === "stripe"
                           ? "SECURE CHECKOUT POWERED BY STRIPE"
-                          : `${price} USDC ON BASE — POWERED BY ENCRYPTO`}
+                          : `${total} USDC ON BASE — POWERED BY ENCRYPTO`}
                       </p>
                     </div>
                   </motion.form>
@@ -500,17 +552,5 @@ function CheckoutForm() {
         </motion.div>
       </main>
     </div>
-  )
-}
-
-export default function CheckoutPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 text-zinc-500 animate-spin" />
-      </div>
-    }>
-      <CheckoutForm />
-    </Suspense>
   )
 }

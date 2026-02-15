@@ -4,6 +4,8 @@ import { useState, useMemo } from "react"
 import { motion } from "framer-motion"
 import { ProductCard } from "@/components/product-card"
 import { ActivityTicker } from "@/components/activity-ticker"
+import { CartIcon } from "@/components/cart-icon"
+import { CartDrawer } from "@/components/cart-drawer"
 import { MOCK_PRODUCTS } from "@/lib/mock-products"
 import { SPRING } from "@/lib/constants"
 import Link from "next/link"
@@ -12,6 +14,7 @@ type FilterTab = "all" | "active" | "ending_soon"
 
 export default function HomePage() {
   const [filter, setFilter] = useState<FilterTab>("all")
+  const [cartOpen, setCartOpen] = useState(false)
 
   const activeProducts = useMemo(() => {
     const products = MOCK_PRODUCTS.filter(p => p.status === "active")
@@ -44,6 +47,7 @@ export default function HomePage() {
             >
               Vault
             </Link>
+            <CartIcon onClick={() => setCartOpen(true)} />
           </nav>
         </div>
       </header>
@@ -175,6 +179,8 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </div>
   )
 }

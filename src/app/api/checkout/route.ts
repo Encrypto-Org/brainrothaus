@@ -8,11 +8,23 @@ export const runtime = "nodejs"
 // Hardcoded — NEXT_PUBLIC_ env vars can be unreliable at runtime in serverless
 const SITE_URL = "https://brainrothaus.vercel.app"
 
+interface CheckoutItem {
+  product_slug: string
+  product_title?: string
+  product_id?: string
+  size: SizeKey
+  price: number
+  quantity: number
+}
+
 async function createStripeCheckoutSession(params: {
   email: string
-  productName: string
-  description: string
-  amountCents: number
+  lineItems: Array<{
+    name: string
+    description: string
+    amountCents: number
+    quantity: number
+  }>
   metadata: Record<string, string>
   successUrl: string
   cancelUrl: string
@@ -23,11 +35,15 @@ async function createStripeCheckoutSession(params: {
   body.set("payment_method_types[0]", "card")
   body.set("success_url", params.successUrl)
   body.set("cancel_url", params.cancelUrl)
-  body.set("line_items[0][price_data][currency]", "usd")
-  body.set("line_items[0][price_data][product_data][name]", params.productName)
-  body.set("line_items[0][price_data][product_data][description]", params.description)
-  body.set("line_items[0][price_data][unit_amount]", String(params.amountCents))
-  body.set("line_items[0][quantity]", "1")
+
+  // Add each line item
+  params.lineItems.forEach((item, index) => {
+    body.set(`line_items[${index}][price_data][currency]`, "usd")
+    body.set(`line_items[${index}][price_data][product_data][name]`, item.name)
+    body.set(`line_items[${index}][price_data][product_data][description]`, item.description)
+    body.set(`line_items[${index}][price_data][unit_amount]`, String(item.amountCents))
+    body.set(`line_items[${index}][quantity]`, String(item.quantity))
+  })
 
   // Add metadata
   for (const [key, value] of Object.entries(params.metadata)) {
@@ -50,19 +66,63 @@ async function createStripeCheckoutSession(params: {
   return data
 }
 
+function normalizeItems(body: Record<string, unknown>): CheckoutItem[] {
+  // New format: items array
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    return (body.items as Array<Record<string, unknown>>).map((item) => {
+      const size = item.size as SizeKey
+      const sizeConfig = SIZES[size]
+      return {
+        product_slug: (item.product_slug as string) || "",
+        product_title: (item.product_title as string) || "",
+        product_id: (item.product_id as string) || "",
+        size,
+        price: sizeConfig ? sizeConfig.price : (item.price as number) || 0,
+        quantity: (item.quantity as number) || 1,
+      }
+    })
+  }
+
+  // Legacy format: single product via product_slug + size
+  const size = (body.size as SizeKey) || "small"
+  const sizeConfig = SIZES[size]
+  if (!sizeConfig) return []
+
+  return [
+    {
+      product_slug: (body.product_slug as string) || "",
+      product_title: "",
+      product_id: (body.product_id as string) || "",
+      size,
+      price: sizeConfig.price,
+      quantity: 1,
+    },
+  ]
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { product_id, product_slug, size, email, shipping, method } = body
+    const { email, shipping, method } = body
 
-    if ((!product_id && !product_slug) || !size || !email || !shipping) {
+    const items = normalizeItems(body)
+
+    if (items.length === 0) {
+      return NextResponse.json({ error: "No valid items" }, { status: 400 })
+    }
+
+    if (!email || !shipping) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    const sizeConfig = SIZES[size as SizeKey]
-    if (!sizeConfig) {
-      return NextResponse.json({ error: "Invalid size" }, { status: 400 })
+    // Validate all sizes
+    for (const item of items) {
+      if (!SIZES[item.size]) {
+        return NextResponse.json({ error: `Invalid size: ${item.size}` }, { status: 400 })
+      }
     }
+
+    const totalAmount = items.reduce((acc, item) => acc + item.price * item.quantity, 0)
 
     // Stripe card payment
     if (method === "stripe") {
@@ -72,17 +132,27 @@ export async function POST(req: NextRequest) {
       }
 
       const successUrl = `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`
-      const cancelUrl = `${SITE_URL}/drop/${product_slug}`
+      const cancelUrl = `${SITE_URL}/`
+
+      const lineItems = items.map((item) => {
+        const sizeConfig = SIZES[item.size]
+        return {
+          name: `BRAINROTHAUS Tapestry — ${item.product_slug}`,
+          description: `${sizeConfig.label} Wall Tapestry. Limited Edition.`,
+          amountCents: item.price * 100,
+          quantity: item.quantity,
+        }
+      })
+
+      // Store item details in metadata (Stripe metadata values must be strings, max 500 chars)
+      const itemsSummary = items.map((item) => `${item.product_slug}|${item.size}|${item.quantity}`).join(",")
 
       const session = await createStripeCheckoutSession({
         email,
-        productName: `BRAINROTHAUS Tapestry — ${product_slug}`,
-        description: `${sizeConfig.label} Wall Tapestry. Limited Edition.`,
-        amountCents: sizeConfig.price * 100,
+        lineItems,
         metadata: {
-          product_id: product_id || "",
-          product_slug: product_slug || "",
-          size,
+          items: itemsSummary,
+          total_amount: String(totalAmount),
           shipping_name: shipping.name,
           shipping_address1: shipping.address1,
           shipping_address2: shipping.address2 || "",
@@ -102,8 +172,7 @@ export async function POST(req: NextRequest) {
     if (method === "encrypto") {
       const supabase = createServerClient()
 
-      // Note: product_id omitted until products are seeded in DB
-      // Product info tracked via shipping_address metadata
+      // Create one order with all items in the metadata
       const { data: order, error } = await supabase
         .from("brainrothaus_orders")
         .insert({
@@ -116,14 +185,20 @@ export async function POST(req: NextRequest) {
             state: shipping.state,
             zip: shipping.zip,
             country: shipping.country,
-            product_slug: product_slug || "",
-            product_id: product_id || "",
           },
-          size,
+          size: items[0].size, // Primary size for legacy compat
           payment_method: "encrypto",
           payment_status: "pending",
           fulfillment_status: "pending",
-          amount_usd: sizeConfig.price,
+          amount_usd: totalAmount,
+          // Store all items as JSON in metadata
+          order_items: items.map((item) => ({
+            product_slug: item.product_slug,
+            product_title: item.product_title || item.product_slug,
+            size: item.size,
+            price: item.price,
+            quantity: item.quantity,
+          })),
         })
         .select("id")
         .single()
@@ -138,7 +213,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         order_id: order.id,
-        amount_usdc: sizeConfig.price,
+        amount_usdc: totalAmount,
         payment_address: CRYPTO_PAYMENT.address,
         chain: CRYPTO_PAYMENT.chain,
         token: CRYPTO_PAYMENT.token,

@@ -3,20 +3,25 @@
 import { useState, use } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { motion } from "framer-motion"
-import { ArrowLeft, ShoppingBag } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { ArrowLeft, ShoppingBag, Check } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { CartIcon } from "@/components/cart-icon"
+import { CartDrawer } from "@/components/cart-drawer"
 import { CountdownTimer } from "@/components/countdown-timer"
 import { StockCounter } from "@/components/stock-counter"
+import { useCart } from "@/lib/cart"
 import { MOCK_PRODUCTS } from "@/lib/mock-products"
 import { SIZES, SPRING, type SizeKey } from "@/lib/constants"
 
 export default function DropPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
-  const router = useRouter()
   const product = MOCK_PRODUCTS.find(p => p.slug === slug)
   const [selectedSize, setSelectedSize] = useState<SizeKey>("small")
+  const [cartOpen, setCartOpen] = useState(false)
+  const [justAdded, setJustAdded] = useState(false)
+  const { addItem } = useCart()
 
   if (!product) {
     return (
@@ -36,8 +41,38 @@ export default function DropPage({ params }: { params: Promise<{ slug: string }>
   const isVaulted = product.status === "vaulted" || product.status === "sold_out"
   const price = SIZES[selectedSize].price
 
-  const handleBuy = () => {
-    router.push(`/checkout?product=${product.slug}&size=${selectedSize}`)
+  const handleAddToCart = () => {
+    const added = addItem({
+      productSlug: product.slug,
+      productTitle: product.title,
+      imageUrl: product.image_url,
+      size: selectedSize,
+      price,
+    })
+
+    if (added === false) {
+      toast.error("BAG IS FULL — max 10 items", {
+        style: {
+          background: "rgba(24, 24, 27, 0.95)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          color: "#fafafa",
+        },
+      })
+      return
+    }
+
+    // Show "ADDED TO BAG" state on button
+    setJustAdded(true)
+    setTimeout(() => setJustAdded(false), 1500)
+
+    toast.success("ADDED TO BAG", {
+      description: `${product.title} — ${SIZES[selectedSize].label}`,
+      style: {
+        background: "rgba(24, 24, 27, 0.95)",
+        border: "1px solid rgba(57,255,20,0.2)",
+        color: "#fafafa",
+      },
+    })
   }
 
   return (
@@ -49,9 +84,12 @@ export default function DropPage({ params }: { params: Promise<{ slug: string }>
             <ArrowLeft className="w-4 h-4" />
             <span className="text-xs font-mono uppercase tracking-widest">BACK</span>
           </Link>
-          <span className="text-lg font-black tracking-tighter text-white">
-            BRAINROT<span className="text-[#39ff14]">HAUS</span>
-          </span>
+          <div className="flex items-center gap-3">
+            <Link href="/" className="text-lg font-black tracking-tighter text-white">
+              BRAINROT<span className="text-[#39ff14]">HAUS</span>
+            </Link>
+            <CartIcon onClick={() => setCartOpen(true)} />
+          </div>
         </div>
       </header>
 
@@ -160,15 +198,44 @@ export default function DropPage({ params }: { params: Promise<{ slug: string }>
                     <span className="text-zinc-600 text-[10px] font-mono">FREE SHIPPING</span>
                   </div>
                 </div>
-                <Button
-                  variant="neon"
-                  size="xl"
-                  className="w-full text-base"
-                  onClick={handleBuy}
-                >
-                  <ShoppingBag className="w-5 h-5 mr-2" />
-                  COP THIS DROP
-                </Button>
+                <AnimatePresence mode="wait">
+                  {justAdded ? (
+                    <motion.div
+                      key="added"
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.95, opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <Button
+                        variant="neon"
+                        size="xl"
+                        className="w-full text-base pointer-events-none"
+                      >
+                        <Check className="w-5 h-5 mr-2" />
+                        ADDED TO BAG
+                      </Button>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="add"
+                      initial={{ scale: 0.95, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.95, opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <Button
+                        variant="neon"
+                        size="xl"
+                        className="w-full text-base"
+                        onClick={handleAddToCart}
+                      >
+                        <ShoppingBag className="w-5 h-5 mr-2" />
+                        ADD TO BAG — ${price}
+                      </Button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <p className="text-zinc-600 text-[10px] font-mono text-center">
                   CARD OR CRYPTO (USDC) — CHOOSE AT CHECKOUT
                 </p>
@@ -204,6 +271,8 @@ export default function DropPage({ params }: { params: Promise<{ slug: string }>
           </motion.div>
         </div>
       </main>
+
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </div>
   )
 }
