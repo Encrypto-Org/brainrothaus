@@ -16,22 +16,21 @@ async function createStripeCheckoutSession(params: {
   successUrl: string
   cancelUrl: string
 }) {
-  const parts: string[] = [
-    `mode=payment`,
-    `customer_email=${encodeURIComponent(params.email)}`,
-    `payment_method_types[0]=card`,
-    `success_url=${encodeURIComponent(params.successUrl)}`,
-    `cancel_url=${encodeURIComponent(params.cancelUrl)}`,
-    `line_items[0][price_data][currency]=usd`,
-    `line_items[0][price_data][product_data][name]=${encodeURIComponent(params.productName)}`,
-    `line_items[0][price_data][product_data][description]=${encodeURIComponent(params.description)}`,
-    `line_items[0][price_data][unit_amount]=${params.amountCents}`,
-    `line_items[0][quantity]=1`,
-  ]
+  const body = new URLSearchParams()
+  body.set("mode", "payment")
+  body.set("customer_email", params.email)
+  body.set("payment_method_types[0]", "card")
+  body.set("success_url", params.successUrl)
+  body.set("cancel_url", params.cancelUrl)
+  body.set("line_items[0][price_data][currency]", "usd")
+  body.set("line_items[0][price_data][product_data][name]", params.productName)
+  body.set("line_items[0][price_data][product_data][description]", params.description)
+  body.set("line_items[0][price_data][unit_amount]", String(params.amountCents))
+  body.set("line_items[0][quantity]", "1")
 
   // Add metadata
   for (const [key, value] of Object.entries(params.metadata)) {
-    parts.push(`metadata[${key}]=${encodeURIComponent(value)}`)
+    body.set(`metadata[${key}]`, value)
   }
 
   const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -40,7 +39,7 @@ async function createStripeCheckoutSession(params: {
       "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: parts.join("&"),
+    body: body.toString(),
   })
 
   const data = await res.json()
