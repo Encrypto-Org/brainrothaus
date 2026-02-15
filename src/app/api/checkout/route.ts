@@ -5,7 +5,8 @@ import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 // Force Node.js runtime
 export const runtime = "nodejs"
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.vercel.app"
+// Hardcoded — NEXT_PUBLIC_ env vars can be unreliable at runtime in serverless
+const SITE_URL = "https://brainrothaus.vercel.app"
 
 async function createStripeCheckoutSession(params: {
   email: string
@@ -70,8 +71,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
       }
 
-      const successUrl = "https://brainrothaus.vercel.app/order/success"
-      const cancelUrl = "https://brainrothaus.vercel.app"
+      const successUrl = `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`
+      const cancelUrl = `${SITE_URL}/drop/${product_slug}`
 
       const session = await createStripeCheckoutSession({
         email,
