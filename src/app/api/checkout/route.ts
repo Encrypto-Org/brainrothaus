@@ -5,8 +5,13 @@ import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 // Force Node.js runtime
 export const runtime = "nodejs"
 
-// Hardcoded — NEXT_PUBLIC_ env vars can be unreliable at runtime in serverless
-const SITE_URL = "https://brainrothaus.vercel.app"
+// Use SITE_URL env var for Stripe redirect URLs (success/cancel pages).
+// Falls back to NEXT_PUBLIC_SITE_URL, then to the production domain.
+// Set SITE_URL in your deployment env vars (Vercel dashboard) for each environment.
+const SITE_URL =
+  process.env.SITE_URL ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  "https://brainrothaus.com"
 
 interface CheckoutItem {
   product_slug: string
