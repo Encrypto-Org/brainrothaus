@@ -170,7 +170,7 @@ export default function DropPage({ params }: { params: Promise<{ slug: string }>
                   COP THIS DROP
                 </Button>
                 <p className="text-zinc-600 text-[10px] font-mono text-center">
-                  SECURE CHECKOUT WITH STRIPE. CRYPTO COMING SOON.
+                  CARD OR CRYPTO (USDC) — CHOOSE AT CHECKOUT
                 </p>
               </div>
             ) : (

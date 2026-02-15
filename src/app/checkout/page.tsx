@@ -4,12 +4,122 @@ import { useState, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import Image from "next/image"
-import { motion } from "framer-motion"
-import { ArrowLeft, CreditCard, Loader2 } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { ArrowLeft, CreditCard, Loader2, Wallet, Copy, Check, ExternalLink } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
 import { Button } from "@/components/ui/button"
 import { MOCK_PRODUCTS } from "@/lib/mock-products"
-import { SIZES, SPRING, type SizeKey } from "@/lib/constants"
+import { SIZES, SPRING, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 import { toast } from "sonner"
+
+type PaymentMethod = "stripe" | "encrypto"
+
+function CryptoPaymentPanel({ amount, orderId }: { amount: number; orderId: string | null }) {
+  const [copied, setCopied] = useState(false)
+
+  const copyAddress = async () => {
+    await navigator.clipboard.writeText(CRYPTO_PAYMENT.address)
+    setCopied(true)
+    toast.success("Address copied!")
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={SPRING}
+      className="space-y-6"
+    >
+      {/* Amount */}
+      <div className="text-center p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
+        <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-1">
+          SEND EXACTLY
+        </span>
+        <div className="text-3xl font-black text-white tabular-nums">
+          {amount.toFixed(2)} <span className="text-[#39ff14]">USDC</span>
+        </div>
+        <span className="text-[10px] font-mono text-zinc-600 block mt-1">
+          ON {CRYPTO_PAYMENT.chain} NETWORK
+        </span>
+      </div>
+
+      {/* QR Code */}
+      <div className="flex justify-center">
+        <div className="p-4 bg-white rounded-xl">
+          <QRCodeSVG
+            value={CRYPTO_PAYMENT.address}
+            size={180}
+            level="H"
+            bgColor="#ffffff"
+            fgColor="#000000"
+          />
+        </div>
+      </div>
+
+      {/* Address */}
+      <div>
+        <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-2">
+          USDC ADDRESS ({CRYPTO_PAYMENT.chain})
+        </span>
+        <div className="flex items-center gap-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
+          <code className="text-xs text-zinc-300 font-mono flex-1 break-all">
+            {CRYPTO_PAYMENT.address}
+          </code>
+          <button
+            onClick={copyAddress}
+            className="shrink-0 p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+          >
+            {copied ? (
+              <Check className="w-4 h-4 text-[#39ff14]" />
+            ) : (
+              <Copy className="w-4 h-4 text-zinc-500" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Instructions */}
+      <div className="space-y-2 text-xs text-zinc-500">
+        <p className="flex items-start gap-2">
+          <span className="text-[#39ff14] font-bold">1.</span>
+          Send exactly <span className="text-white font-mono">{amount.toFixed(2)} USDC</span> on <span className="text-white">{CRYPTO_PAYMENT.chain}</span>
+        </p>
+        <p className="flex items-start gap-2">
+          <span className="text-[#39ff14] font-bold">2.</span>
+          Payment is detected automatically (usually within 1 minute)
+        </p>
+        <p className="flex items-start gap-2">
+          <span className="text-[#39ff14] font-bold">3.</span>
+          You&apos;ll receive email confirmation once verified
+        </p>
+      </div>
+
+      {orderId && (
+        <div className="p-3 bg-zinc-900/50 border border-zinc-800/50 rounded-xl">
+          <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest block mb-1">
+            ORDER ID
+          </span>
+          <code className="text-xs text-zinc-400 font-mono">{orderId}</code>
+        </div>
+      )}
+
+      {/* Powered by Encrypto */}
+      <div className="flex items-center justify-center gap-2 pt-2">
+        <span className="text-zinc-600 text-[10px] font-mono">POWERED BY</span>
+        <a
+          href="https://encrypto.fun"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] font-mono font-bold text-[#39ff14] hover:underline flex items-center gap-1"
+        >
+          ENCRYPTO <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+    </motion.div>
+  )
+}
 
 function CheckoutForm() {
   const searchParams = useSearchParams()
@@ -19,6 +129,9 @@ function CheckoutForm() {
 
   const product = MOCK_PRODUCTS.find(p => p.slug === productSlug)
   const [loading, setLoading] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe")
+  const [cryptoOrderId, setCryptoOrderId] = useState<string | null>(null)
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false)
 
   const [form, setForm] = useState({
     email: "",
@@ -50,12 +163,16 @@ function CheckoutForm() {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const validateForm = () => {
     if (!form.email || !form.name || !form.address1 || !form.city || !form.state || !form.zip) {
       toast.error("Please fill in all required fields")
-      return
+      return false
     }
+    return true
+  }
+
+  const handleStripeCheckout = async () => {
+    if (!validateForm()) return
     setLoading(true)
 
     try {
@@ -91,6 +208,56 @@ function CheckoutForm() {
     } catch {
       toast.error("Something went wrong. Try again.")
       setLoading(false)
+    }
+  }
+
+  const handleCryptoCheckout = async () => {
+    if (!validateForm()) return
+    setLoading(true)
+
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: product.id,
+          product_slug: product.slug,
+          size: sizeParam,
+          email: form.email,
+          shipping: {
+            name: form.name,
+            address1: form.address1,
+            address2: form.address2,
+            city: form.city,
+            state: form.state,
+            zip: form.zip,
+            country: form.country,
+          },
+          method: "encrypto",
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.order_id) {
+        setCryptoOrderId(data.order_id)
+        setShowCryptoPayment(true)
+      } else {
+        toast.error(data.error || "Failed to create crypto payment")
+      }
+    } catch {
+      toast.error("Something went wrong. Try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (paymentMethod === "stripe") {
+      await handleStripeCheckout()
+    } else {
+      await handleCryptoCheckout()
     }
   }
 
@@ -145,130 +312,190 @@ function CheckoutForm() {
               </div>
             </div>
 
-            {/* Shipping form */}
-            <form onSubmit={handleSubmit} className="md:col-span-3 space-y-6">
-              <div>
-                <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-2">
-                  EMAIL
-                </label>
-                <input
-                  type="email"
-                  name="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  placeholder="your@email.com"
-                  required
-                  className={inputClass}
-                  style={{ fontSize: "16px" }}
-                />
-              </div>
+            {/* Form + Payment */}
+            <div className="md:col-span-3 space-y-6">
+              <AnimatePresence mode="wait">
+                {showCryptoPayment ? (
+                  <CryptoPaymentPanel
+                    key="crypto-payment"
+                    amount={price}
+                    orderId={cryptoOrderId}
+                  />
+                ) : (
+                  <motion.form
+                    key="checkout-form"
+                    onSubmit={handleSubmit}
+                    className="space-y-6"
+                    exit={{ opacity: 0, y: -10 }}
+                  >
+                    {/* Payment method toggle */}
+                    <div>
+                      <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-3">
+                        PAYMENT METHOD
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod("stripe")}
+                          className={`flex items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
+                            paymentMethod === "stripe"
+                              ? "border-[#39ff14] bg-[#39ff14]/5 text-white"
+                              : "border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:border-zinc-700"
+                          }`}
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span className="text-sm font-bold">CARD</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod("encrypto")}
+                          className={`flex items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
+                            paymentMethod === "encrypto"
+                              ? "border-[#39ff14] bg-[#39ff14]/5 text-white"
+                              : "border-zinc-800 bg-zinc-900/50 text-zinc-400 hover:border-zinc-700"
+                          }`}
+                        >
+                          <Wallet className="w-4 h-4" />
+                          <span className="text-sm font-bold">CRYPTO</span>
+                        </button>
+                      </div>
+                    </div>
 
-              <div>
-                <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-2">
-                  SHIPPING ADDRESS
-                </label>
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    name="name"
-                    value={form.name}
-                    onChange={handleChange}
-                    placeholder="Full name"
-                    required
-                    className={inputClass}
-                  />
-                  <input
-                    type="text"
-                    name="address1"
-                    value={form.address1}
-                    onChange={handleChange}
-                    placeholder="Address line 1"
-                    required
-                    className={inputClass}
-                  />
-                  <input
-                    type="text"
-                    name="address2"
-                    value={form.address2}
-                    onChange={handleChange}
-                    placeholder="Address line 2 (optional)"
-                    className={inputClass}
-                  />
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      name="city"
-                      value={form.city}
-                      onChange={handleChange}
-                      placeholder="City"
-                      required
-                      className={inputClass}
-                    />
-                    <input
-                      type="text"
-                      name="state"
-                      value={form.state}
-                      onChange={handleChange}
-                      placeholder="State"
-                      required
-                      className={inputClass}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input
-                      type="text"
-                      name="zip"
-                      value={form.zip}
-                      onChange={handleChange}
-                      placeholder="ZIP code"
-                      required
-                      className={inputClass}
-                    />
-                    <select
-                      name="country"
-                      value={form.country}
-                      onChange={handleChange}
-                      className={inputClass}
-                    >
-                      <option value="US">United States</option>
-                      <option value="CA">Canada</option>
-                      <option value="GB">United Kingdom</option>
-                      <option value="AU">Australia</option>
-                      <option value="DE">Germany</option>
-                      <option value="FR">France</option>
-                      <option value="BR">Brazil</option>
-                      <option value="AR">Argentina</option>
-                      <option value="MX">Mexico</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+                    {/* Email */}
+                    <div>
+                      <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-2">
+                        EMAIL
+                      </label>
+                      <input
+                        type="email"
+                        name="email"
+                        value={form.email}
+                        onChange={handleChange}
+                        placeholder="your@email.com"
+                        required
+                        className={inputClass}
+                        style={{ fontSize: "16px" }}
+                      />
+                    </div>
 
-              <div className="pt-4 border-t border-zinc-800/50">
-                <Button
-                  type="submit"
-                  variant="neon"
-                  size="xl"
-                  className="w-full text-base"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      PROCESSING...
-                    </>
-                  ) : (
-                    <>
-                      <CreditCard className="w-5 h-5 mr-2" />
-                      PAY ${price} WITH CARD
-                    </>
-                  )}
-                </Button>
-                <p className="text-zinc-600 text-[10px] font-mono text-center mt-3">
-                  SECURE CHECKOUT POWERED BY STRIPE
-                </p>
-              </div>
-            </form>
+                    {/* Shipping */}
+                    <div>
+                      <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block mb-2">
+                        SHIPPING ADDRESS
+                      </label>
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          name="name"
+                          value={form.name}
+                          onChange={handleChange}
+                          placeholder="Full name"
+                          required
+                          className={inputClass}
+                        />
+                        <input
+                          type="text"
+                          name="address1"
+                          value={form.address1}
+                          onChange={handleChange}
+                          placeholder="Address line 1"
+                          required
+                          className={inputClass}
+                        />
+                        <input
+                          type="text"
+                          name="address2"
+                          value={form.address2}
+                          onChange={handleChange}
+                          placeholder="Address line 2 (optional)"
+                          className={inputClass}
+                        />
+                        <div className="grid grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            name="city"
+                            value={form.city}
+                            onChange={handleChange}
+                            placeholder="City"
+                            required
+                            className={inputClass}
+                          />
+                          <input
+                            type="text"
+                            name="state"
+                            value={form.state}
+                            onChange={handleChange}
+                            placeholder="State"
+                            required
+                            className={inputClass}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            name="zip"
+                            value={form.zip}
+                            onChange={handleChange}
+                            placeholder="ZIP code"
+                            required
+                            className={inputClass}
+                          />
+                          <select
+                            name="country"
+                            value={form.country}
+                            onChange={handleChange}
+                            className={inputClass}
+                          >
+                            <option value="US">United States</option>
+                            <option value="CA">Canada</option>
+                            <option value="GB">United Kingdom</option>
+                            <option value="AU">Australia</option>
+                            <option value="DE">Germany</option>
+                            <option value="FR">France</option>
+                            <option value="BR">Brazil</option>
+                            <option value="AR">Argentina</option>
+                            <option value="MX">Mexico</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Submit */}
+                    <div className="pt-4 border-t border-zinc-800/50">
+                      <Button
+                        type="submit"
+                        variant="neon"
+                        size="xl"
+                        className="w-full text-base"
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                            PROCESSING...
+                          </>
+                        ) : paymentMethod === "stripe" ? (
+                          <>
+                            <CreditCard className="w-5 h-5 mr-2" />
+                            PAY ${price} WITH CARD
+                          </>
+                        ) : (
+                          <>
+                            <Wallet className="w-5 h-5 mr-2" />
+                            PAY {price} USDC
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-zinc-600 text-[10px] font-mono text-center mt-3">
+                        {paymentMethod === "stripe"
+                          ? "SECURE CHECKOUT POWERED BY STRIPE"
+                          : `${price} USDC ON BASE — POWERED BY ENCRYPTO`}
+                      </p>
+                    </div>
+                  </motion.form>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </motion.div>
       </main>

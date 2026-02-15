@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
-import { SIZES, type SizeKey } from "@/lib/constants"
+import { createServerClient } from "@/lib/supabase"
+import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!)
@@ -10,7 +11,6 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
 
 export async function POST(req: NextRequest) {
   try {
-    const stripe = getStripe()
     const body = await req.json()
     const { product_id, product_slug, size, email, shipping, method } = body
 
@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid size" }, { status: 400 })
     }
 
+    // Stripe card payment
     if (method === "stripe") {
+      const stripe = getStripe()
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         mode: "payment",
@@ -60,9 +62,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ url: session.url })
     }
 
-    // Encrypto crypto payment — Phase 2
+    // Encrypto crypto payment — create pending order in Supabase
     if (method === "encrypto") {
-      return NextResponse.json({ error: "Crypto payments coming soon" }, { status: 400 })
+      const supabase = createServerClient()
+
+      const { data: order, error } = await supabase
+        .from("brainrothaus_orders")
+        .insert({
+          product_id,
+          customer_email: email,
+          shipping_address: {
+            name: shipping.name,
+            address1: shipping.address1,
+            address2: shipping.address2 || "",
+            city: shipping.city,
+            state: shipping.state,
+            zip: shipping.zip,
+            country: shipping.country,
+          },
+          size,
+          payment_method: "encrypto",
+          payment_status: "pending",
+          fulfillment_status: "pending",
+          amount_usd: sizeConfig.price,
+        })
+        .select("id")
+        .single()
+
+      if (error) {
+        console.error("Failed to create crypto order:", error)
+        return NextResponse.json(
+          { error: "Failed to create order" },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        order_id: order.id,
+        amount_usdc: sizeConfig.price,
+        payment_address: CRYPTO_PAYMENT.address,
+        chain: CRYPTO_PAYMENT.chain,
+        token: CRYPTO_PAYMENT.token,
+      })
     }
 
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 })

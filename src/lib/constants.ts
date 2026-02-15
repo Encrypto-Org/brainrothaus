@@ -12,6 +12,17 @@ export const SIZES = {
 
 export type SizeKey = keyof typeof SIZES
 
+// Crypto payment config
+// USDC receiving address on Base (L2 — cheap gas)
+// TODO: Replace with Encrypto merchant deposit address when merchant API is built
+export const CRYPTO_PAYMENT = {
+  address: "0x30e6f5c7aeb987de14b6b3ee92dbcd8306c8fb9d",
+  chain: "Base",
+  chainId: 8453,
+  token: "USDC",
+  tokenDecimals: 6,
+} as const
+
 export const ACTIVITY_FEED = [
   { name: "chad_thundercock", action: "just copped", item: "Terachad Ascension", time: "2s ago" },
   { name: "sigma.sol", action: "just copped", item: "Lone Wolf Protocol", time: "8s ago" },
