@@ -119,6 +119,32 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // Debug: test raw Stripe API connectivity
+    if (method === "stripe_debug") {
+      try {
+        const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            "mode": "payment",
+            "success_url": "https://brainrothaus.vercel.app/order/success",
+            "cancel_url": "https://brainrothaus.vercel.app",
+            "line_items[0][price_data][currency]": "usd",
+            "line_items[0][price_data][product_data][name]": "Test",
+            "line_items[0][price_data][unit_amount]": "4900",
+            "line_items[0][quantity]": "1",
+          }),
+        })
+        const data = await res.json()
+        return NextResponse.json({ stripe_status: res.status, url: data.url, error: data.error })
+      } catch (e) {
+        return NextResponse.json({ error: "Raw fetch failed", detail: e instanceof Error ? e.message : "unknown" })
+      }
+    }
+
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
