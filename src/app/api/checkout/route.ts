@@ -3,6 +3,9 @@ import Stripe from "stripe"
 import { createServerClient } from "@/lib/supabase"
 import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 
+// Force Node.js runtime (Edge can't reach external APIs reliably)
+export const runtime = "nodejs"
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
     timeout: 30000,
