@@ -111,6 +111,9 @@ function getApiKey(): string | null {
   return key
 }
 
+// Store ID from Printful dashboard (required for API v2)
+const PRINTFUL_STORE_ID = process.env.PRINTFUL_STORE_ID || "17720117"
+
 async function printfulFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -126,6 +129,7 @@ async function printfulFetch<T>(
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      "X-PF-Store-Id": PRINTFUL_STORE_ID,
       ...options.headers,
     },
   })
