@@ -111,9 +111,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 })
   } catch (error) {
-    console.error("Checkout error:", error)
+    const message = error instanceof Error ? error.message : "Unknown error"
+    console.error("Checkout error:", message, error)
     return NextResponse.json(
-      { error: "Failed to create checkout session" },
+      { error: "Failed to create checkout session", detail: message },
       { status: 500 }
     )
   }
