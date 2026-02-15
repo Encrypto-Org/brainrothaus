@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, useEffect, use } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
@@ -12,13 +12,21 @@ import { CartDrawer } from "@/components/cart-drawer"
 import { CountdownTimer } from "@/components/countdown-timer"
 import { StockCounter } from "@/components/stock-counter"
 import { useCart } from "@/lib/cart"
+import { getProductBySlug } from "@/lib/products"
 import { MOCK_PRODUCTS } from "@/lib/mock-products"
 import { SIZES, SPRING, type SizeKey } from "@/lib/constants"
+import type { Product } from "@/lib/types"
 
 export default function DropPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
-  const product = MOCK_PRODUCTS.find(p => p.slug === slug)
+  const [product, setProduct] = useState<Product | null | undefined>(
+    MOCK_PRODUCTS.find(p => p.slug === slug)
+  )
   const [selectedSize, setSelectedSize] = useState<SizeKey>("small")
+
+  useEffect(() => {
+    getProductBySlug(slug).then(p => { if (p) setProduct(p) })
+  }, [slug])
   const [cartOpen, setCartOpen] = useState(false)
   const [justAdded, setJustAdded] = useState(false)
   const { addItem } = useCart()

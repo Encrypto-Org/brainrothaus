@@ -1,13 +1,15 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { motion } from "framer-motion"
 import { ProductCard } from "@/components/product-card"
 import { ActivityTicker } from "@/components/activity-ticker"
 import { CartIcon } from "@/components/cart-icon"
 import { CartDrawer } from "@/components/cart-drawer"
+import { getProducts } from "@/lib/products"
 import { MOCK_PRODUCTS } from "@/lib/mock-products"
 import { SPRING } from "@/lib/constants"
+import type { Product } from "@/lib/types"
 import Link from "next/link"
 
 type FilterTab = "all" | "active" | "ending_soon"
@@ -15,18 +17,23 @@ type FilterTab = "all" | "active" | "ending_soon"
 export default function HomePage() {
   const [filter, setFilter] = useState<FilterTab>("all")
   const [cartOpen, setCartOpen] = useState(false)
+  const [products, setProducts] = useState<Product[]>(MOCK_PRODUCTS)
+
+  useEffect(() => {
+    getProducts().then(setProducts)
+  }, [])
 
   const activeProducts = useMemo(() => {
-    const products = MOCK_PRODUCTS.filter(p => p.status === "active")
+    const active = products.filter(p => p.status === "active")
     if (filter === "ending_soon") {
-      return products
+      return active
         .filter(p => p.expires_at)
         .sort((a, b) => new Date(a.expires_at!).getTime() - new Date(b.expires_at!).getTime())
     }
-    return products
-  }, [filter])
+    return active
+  }, [filter, products])
 
-  const soldOutProducts = MOCK_PRODUCTS.filter(
+  const soldOutProducts = products.filter(
     p => p.status === "sold_out" || p.status === "vaulted"
   )
 
