@@ -5,7 +5,7 @@ import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 // Force Node.js runtime
 export const runtime = "nodejs"
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.vercel.app"
 
 async function createStripeCheckoutSession(params: {
   email: string
@@ -70,6 +70,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
       }
 
+      const successUrl = `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`
+      const cancelUrl = `${SITE_URL}/drop/${product_slug}`
+      console.log("Stripe checkout URLs:", { SITE_URL, successUrl, cancelUrl })
+
       const session = await createStripeCheckoutSession({
         email,
         productName: `BRAINROTHAUS Tapestry — ${product_slug}`,
@@ -87,8 +91,8 @@ export async function POST(req: NextRequest) {
           shipping_zip: shipping.zip,
           shipping_country: shipping.country,
         },
-        successUrl: `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${SITE_URL}/drop/${product_slug}`,
+        successUrl,
+        cancelUrl,
       })
 
       return NextResponse.json({ url: session.url })
