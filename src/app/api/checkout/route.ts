@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { product_id, product_slug, size, email, shipping, method } = body
 
-    if (!product_id || !size || !email || !shipping) {
+    if ((!product_id && !product_slug) || !size || !email || !shipping) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
@@ -66,10 +66,11 @@ export async function POST(req: NextRequest) {
     if (method === "encrypto") {
       const supabase = createServerClient()
 
+      // Note: product_id omitted until products are seeded in DB
+      // Product info tracked via shipping_address metadata
       const { data: order, error } = await supabase
         .from("brainrothaus_orders")
         .insert({
-          product_id,
           customer_email: email,
           shipping_address: {
             name: shipping.name,
@@ -79,6 +80,8 @@ export async function POST(req: NextRequest) {
             state: shipping.state,
             zip: shipping.zip,
             country: shipping.country,
+            product_slug: product_slug || "",
+            product_id: product_id || "",
           },
           size,
           payment_method: "encrypto",
