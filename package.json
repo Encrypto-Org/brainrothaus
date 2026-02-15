@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate": "tsx scripts/generate-tapestry.ts",
+    "generate:all": "tsx scripts/generate-tapestry.ts --all",
+    "generate:list": "tsx scripts/generate-tapestry.ts --list"
   },
   "dependencies": {
     "@stripe/stripe-js": "^8.7.0",
@@ -33,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
