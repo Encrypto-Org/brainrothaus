@@ -45,7 +45,7 @@ async function createStripeCheckoutSession(params: {
 
   const data = await res.json()
   if (!res.ok) {
-    throw new Error(data.error?.message || `Stripe API error: ${res.status}`)
+    throw new Error(JSON.stringify({ status: res.status, param: data.error?.param, message: data.error?.message, type: data.error?.type }))
   }
   return data
 }
