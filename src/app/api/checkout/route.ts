@@ -4,7 +4,10 @@ import { createServerClient } from "@/lib/supabase"
 import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 
 function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY!)
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    timeout: 30000,
+    maxNetworkRetries: 3,
+  })
 }
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
