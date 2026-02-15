@@ -1,19 +1,54 @@
 import { NextRequest, NextResponse } from "next/server"
-import Stripe from "stripe"
 import { createServerClient } from "@/lib/supabase"
 import { SIZES, CRYPTO_PAYMENT, type SizeKey } from "@/lib/constants"
 
-// Force Node.js runtime (Edge can't reach external APIs reliably)
+// Force Node.js runtime
 export const runtime = "nodejs"
 
-function getStripe() {
-  return new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    timeout: 30000,
-    maxNetworkRetries: 3,
-  })
-}
-
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://brainrothaus.com"
+
+async function createStripeCheckoutSession(params: {
+  email: string
+  productName: string
+  description: string
+  amountCents: number
+  metadata: Record<string, string>
+  successUrl: string
+  cancelUrl: string
+}) {
+  const body = new URLSearchParams({
+    "mode": "payment",
+    "customer_email": params.email,
+    "payment_method_types[0]": "card",
+    "success_url": params.successUrl,
+    "cancel_url": params.cancelUrl,
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][product_data][name]": params.productName,
+    "line_items[0][price_data][product_data][description]": params.description,
+    "line_items[0][price_data][unit_amount]": String(params.amountCents),
+    "line_items[0][quantity]": "1",
+  })
+
+  // Add metadata
+  for (const [key, value] of Object.entries(params.metadata)) {
+    body.append(`metadata[${key}]`, value)
+  }
+
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.error?.message || `Stripe API error: ${res.status}`)
+  }
+  return data
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,27 +70,15 @@ export async function POST(req: NextRequest) {
       if (!key) {
         return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
       }
-      const stripe = getStripe()
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
-        mode: "payment",
-        customer_email: email,
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `BRAINROTHAUS Tapestry — ${product_slug}`,
-                description: `${sizeConfig.label} Wall Tapestry. Limited Edition.`,
-              },
-              unit_amount: sizeConfig.price * 100,
-            },
-            quantity: 1,
-          },
-        ],
+
+      const session = await createStripeCheckoutSession({
+        email,
+        productName: `BRAINROTHAUS Tapestry — ${product_slug}`,
+        description: `${sizeConfig.label} Wall Tapestry. Limited Edition.`,
+        amountCents: sizeConfig.price * 100,
         metadata: {
-          product_id,
-          product_slug,
+          product_id: product_id || "",
+          product_slug: product_slug || "",
           size,
           shipping_name: shipping.name,
           shipping_address1: shipping.address1,
@@ -65,8 +88,8 @@ export async function POST(req: NextRequest) {
           shipping_zip: shipping.zip,
           shipping_country: shipping.country,
         },
-        success_url: `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${SITE_URL}/drop/${product_slug}`,
+        successUrl: `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${SITE_URL}/drop/${product_slug}`,
       })
 
       return NextResponse.json({ url: session.url })
@@ -117,32 +140,6 @@ export async function POST(req: NextRequest) {
         chain: CRYPTO_PAYMENT.chain,
         token: CRYPTO_PAYMENT.token,
       })
-    }
-
-    // Debug: test raw Stripe API connectivity
-    if (method === "stripe_debug") {
-      try {
-        const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            "mode": "payment",
-            "success_url": "https://brainrothaus.vercel.app/order/success",
-            "cancel_url": "https://brainrothaus.vercel.app",
-            "line_items[0][price_data][currency]": "usd",
-            "line_items[0][price_data][product_data][name]": "Test",
-            "line_items[0][price_data][unit_amount]": "4900",
-            "line_items[0][quantity]": "1",
-          }),
-        })
-        const data = await res.json()
-        return NextResponse.json({ stripe_status: res.status, url: data.url, error: data.error })
-      } catch (e) {
-        return NextResponse.json({ error: "Raw fetch failed", detail: e instanceof Error ? e.message : "unknown" })
-      }
     }
 
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 })
