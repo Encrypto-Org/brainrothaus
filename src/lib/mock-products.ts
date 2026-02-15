@@ -1,7 +1,6 @@
 import type { Product } from "./types"
 
-// Placeholder images — replace with AI-generated images uploaded to Supabase Storage
-// Using picsum.photos with seed-based URLs for deterministic, visually-rich placeholders
+// AI-generated images via Flux 2 Pro, stored in Supabase Storage
 
 export const MOCK_PRODUCTS: Product[] = [
   {
@@ -9,7 +8,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Terachad Ascension",
     slug: "terachad-ascension",
     description: "A colossal marble statue of the ideal male form towering over a cyberpunk city. Vaporwave colors meet classical sculpture in this peak sigma tapestry. Only 50 will ever exist.",
-    image_url: "https://picsum.photos/seed/terachad/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/terachad-ascension/terachad-ascension-1771189867263-2048x2048.png",
     price_usd: 49,
     size: "small",
     printful_variant_id: null,
@@ -25,7 +24,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Mewing Cathedral",
     slug: "mewing-cathedral",
     description: "Renaissance oil painting of a Greek god achieving perfect mewing form inside a gothic cathedral. Dramatic lighting. Museum quality. Your jaw will thank you for hanging this.",
-    image_url: "https://picsum.photos/seed/mewing/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/mewing-cathedral/mewing-cathedral-1771189919371-2048x2048.png",
     price_usd: 69,
     size: "large",
     printful_variant_id: null,
@@ -41,7 +40,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Jestermaxx Supreme",
     slug: "jestermaxx-supreme",
     description: "Medieval court jester lifting weights in a gothic cathedral. Full regalia. Oil painting style. Absurdist humor meets physical culture in this limited masterpiece.",
-    image_url: "https://picsum.photos/seed/jester/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/jestermaxx-supreme/jestermaxx-supreme-1771189962191-2048x2048.png",
     price_usd: 89,
     size: "sigma",
     printful_variant_id: null,
@@ -57,7 +56,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Skibidi Dimension",
     slug: "skibidi-dimension",
     description: "Chaotic surrealist fever dream. Toilets with human legs marching through a psychedelic landscape. Hieronymus Bosch meets internet culture. This is what peak performance looks like.",
-    image_url: "https://picsum.photos/seed/skibidi/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/skibidi-dimension/skibidi-dimension-1771190021534-2048x2048.png",
     price_usd: 69,
     size: "large",
     printful_variant_id: null,
@@ -73,7 +72,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Lone Wolf Protocol",
     slug: "lone-wolf-protocol",
     description: "A lone wolf standing on a cliff overlooking an empire of lesser beings. Dramatic sunset. Motivational poster parody turned into high art. Sigma grindset required.",
-    image_url: "https://picsum.photos/seed/sigma/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/lone-wolf-protocol/lone-wolf-protocol-1771190061664-2048x2048.png",
     price_usd: 49,
     size: "small",
     printful_variant_id: null,
@@ -89,7 +88,7 @@ export const MOCK_PRODUCTS: Product[] = [
     title: "Aura Maximizer",
     slug: "aura-maximizer",
     description: "Golden ratio mandala radiating pure aura energy. Sacred geometry meets gym culture. Hang this and gain +1000 aura instantly. Limited to 50 enlightened individuals.",
-    image_url: "https://picsum.photos/seed/aura/1024/1024",
+    image_url: "https://wfiwocicpkqnbcimdgph.supabase.co/storage/v1/object/public/brainrothaus-designs/tapestries/aura-maximizer/aura-maximizer-1771190097983-2048x2048.png",
     price_usd: 89,
     size: "sigma",
     printful_variant_id: null,

@@ -25,6 +25,8 @@
  *   ~$0.06 fal.ai (2048x2048 = ~4.2MP) + ~$0.01 Replicate upscale = ~$0.07/image
  */
 
+import { config } from "dotenv";
+config({ path: ".env.local" });
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { TAPESTRY_PROMPTS, type TapestryPrompt } from "./tapestry-prompts";
 
@@ -45,7 +47,9 @@ let _supabaseServiceKey: string;
 
 function loadEnvVars() {
   _falKey = env("FAL_KEY");
-  _replicateToken = env("REPLICATE_API_TOKEN");
+  if (!_skipUpscale) {
+    _replicateToken = env("REPLICATE_API_TOKEN");
+  }
   _supabaseUrl = env("NEXT_PUBLIC_SUPABASE_URL");
   _supabaseServiceKey = env("SUPABASE_SERVICE_ROLE_KEY");
 }
@@ -205,8 +209,7 @@ async function upscaleWithRealESRGAN(imageUrl: string): Promise<string> {
       Prefer: "wait",
     },
     body: JSON.stringify({
-      // Use the official model identifier — Replicate resolves to latest version
-      model: "nightmareai/real-esrgan",
+      version: "b3ef194191d13140337468c916c2c5b96dd0cb06dffc032a022a31807f6a5ea8",
       input: {
         image: imageUrl,
         scale: UPSCALE_FACTOR,
@@ -275,6 +278,7 @@ async function upscaleWithRealESRGAN(imageUrl: string): Promise<string> {
 async function uploadToSupabase(
   imageUrl: string,
   slug: string,
+  resolution: string = "8192x8192",
 ): Promise<string> {
   log("UPLOAD", `Downloading upscaled image...`);
 
@@ -293,7 +297,7 @@ async function uploadToSupabase(
 
   // Upload to storage
   const timestamp = Date.now();
-  const filePath = `tapestries/${slug}/${slug}-${timestamp}-8192x8192.png`;
+  const filePath = `tapestries/${slug}/${slug}-${timestamp}-${resolution}.png`;
 
   log("UPLOAD", `Uploading to ${STORAGE_BUCKET}/${filePath}...`);
 
@@ -347,33 +351,44 @@ async function uploadToSupabase(
 // Main pipeline
 // ---------------------------------------------------------------------------
 
+let _skipUpscale = false;
+
 async function generateTapestry(prompt: string, slug: string): Promise<string> {
   loadEnvVars();
 
+  const steps = _skipUpscale ? 2 : 3;
   console.log("\n" + "=".repeat(70));
   console.log(`  BRAINROTHAUS TAPESTRY GENERATOR`);
   console.log(`  Slug: ${slug}`);
+  console.log(`  Upscale: ${_skipUpscale ? "SKIPPED (2048x2048)" : "ON (8192x8192)"}`);
   console.log(`  Prompt: ${prompt.slice(0, 80)}...`);
   console.log("=".repeat(70) + "\n");
 
   const startTime = Date.now();
 
   // Step 1: Generate base image
-  log("PIPELINE", "Step 1/3: Generating base image (2048x2048) via Flux 2 Pro...");
+  log("PIPELINE", `Step 1/${steps}: Generating base image (2048x2048) via Flux 2 Pro...`);
   const baseImageUrl = await generateWithFlux(prompt);
 
-  // Step 2: Upscale
-  log("PIPELINE", "Step 2/3: Upscaling to 8192x8192 via Real-ESRGAN...");
-  const upscaledImageUrl = await upscaleWithRealESRGAN(baseImageUrl);
+  let imageToUpload = baseImageUrl;
 
-  // Step 3: Upload
-  log("PIPELINE", "Step 3/3: Uploading to Supabase Storage...");
-  const publicUrl = await uploadToSupabase(upscaledImageUrl, slug);
+  // Step 2: Upscale (optional)
+  if (!_skipUpscale) {
+    log("PIPELINE", `Step 2/${steps}: Upscaling to 8192x8192 via Real-ESRGAN...`);
+    imageToUpload = await upscaleWithRealESRGAN(baseImageUrl);
+  }
+
+  // Step 3 (or 2): Upload
+  const uploadStep = _skipUpscale ? 2 : 3;
+  const resolution = _skipUpscale ? "2048x2048" : "8192x8192";
+  log("PIPELINE", `Step ${uploadStep}/${steps}: Uploading to Supabase Storage...`);
+  const publicUrl = await uploadToSupabase(imageToUpload, slug, resolution);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
   console.log("\n" + "=".repeat(70));
   console.log(`  DONE in ${elapsed}s`);
+  console.log(`  Resolution: ${resolution}`);
   console.log(`  Public URL: ${publicUrl}`);
   console.log("=".repeat(70) + "\n");
 
@@ -408,6 +423,9 @@ async function main() {
         break;
       case "--all":
         generateAll = true;
+        break;
+      case "--no-upscale":
+        _skipUpscale = true;
         break;
       case "--list":
         console.log("\nAvailable presets:\n");
