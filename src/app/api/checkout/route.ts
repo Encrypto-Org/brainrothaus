@@ -70,9 +70,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
       }
 
-      const successUrl = `${SITE_URL}/order/success`
-      const cancelUrl = `${SITE_URL}/drop/${product_slug}`
-      console.log("Stripe checkout URLs:", { SITE_URL, successUrl, cancelUrl })
+      const successUrl = "https://brainrothaus.vercel.app/order/success"
+      const cancelUrl = "https://brainrothaus.vercel.app"
 
       const session = await createStripeCheckoutSession({
         email,
