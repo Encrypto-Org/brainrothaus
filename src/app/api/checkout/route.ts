@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
       }
 
-      const successUrl = `${SITE_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`
+      const successUrl = `${SITE_URL}/order/success`
       const cancelUrl = `${SITE_URL}/drop/${product_slug}`
       console.log("Stripe checkout URLs:", { SITE_URL, successUrl, cancelUrl })
 
