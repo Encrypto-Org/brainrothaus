@@ -25,6 +25,10 @@ export async function POST(req: NextRequest) {
 
     // Stripe card payment
     if (method === "stripe") {
+      const key = process.env.STRIPE_SECRET_KEY
+      if (!key) {
+        return NextResponse.json({ error: "Stripe key not configured" }, { status: 500 })
+      }
       const stripe = getStripe()
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
