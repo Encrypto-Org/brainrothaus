@@ -5,9 +5,9 @@ export const SPRING = { type: "spring" as const, stiffness: 200, damping: 24 }
 export const SPRING_BOUNCY = { type: "spring" as const, stiffness: 300, damping: 20 }
 
 export const SIZES = {
-  small: { label: '36"×36"', price: 49 },
-  large: { label: '51"×60"', price: 69 },
-  sigma: { label: '68"×80" SIGMA EDITION', price: 89 },
+  small: { label: '26"×36"', price: 49 },
+  large: { label: '50"×60"', price: 69 },
+  sigma: { label: '60"×80" SIGMA EDITION', price: 89 },
 } as const
 
 export type SizeKey = keyof typeof SIZES

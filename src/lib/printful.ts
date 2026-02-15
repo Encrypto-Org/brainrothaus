@@ -5,31 +5,25 @@
  * Base URL: https://api.printful.com
  * Auth: Bearer token via PRINTFUL_API_KEY env var
  *
- * Product: Indoor Wall Tapestry (product_id 327)
- * Sizes available:
- *   - 26"×36"  (variant_id TBD — update once confirmed via GET /products/327)
- *   - 50"×60"  (variant_id TBD)
+ * Products used:
+ *   - Indoor Wall Tapestry (product_id 973): small + large sizes
+ *   - Throw Blanket (product_id 395): sigma size (60"×80")
  *
- * The variant map below uses placeholder IDs. To get real IDs:
- *   curl -H "Authorization: Bearer $PRINTFUL_API_KEY" \
- *        https://api.printful.com/products/327
+ * Variant IDs confirmed via GET /products/973 and GET /products/395
  */
 
 const PRINTFUL_BASE_URL = "https://api.printful.com"
 
 /**
- * Map our internal size keys to Printful variant IDs for the Indoor Wall Tapestry.
+ * Map our internal size keys to Printful variant IDs.
  *
- * These MUST be updated with real variant IDs from Printful's catalog.
- * Run `GET /products/327` to get the actual variant list.
- *
- * The "sigma" size (68"×80") may not exist as a single Printful variant —
- * if so, we may need a different product or a custom order.
+ * small + large → Indoor Wall Tapestry (product 973)
+ * sigma → Throw Blanket 60"×80" (product 395) — closest to our 68"×80" SIGMA EDITION
  */
 const SIZE_TO_VARIANT: Record<string, number> = {
-  small: 14825,  // 26"×36" — PLACEHOLDER, verify via API
-  large: 14826,  // 50"×60" — PLACEHOLDER, verify via API
-  sigma: 14827,  // 68"×80" — PLACEHOLDER, may need different product
+  small: 24970,  // Indoor Wall Tapestry 26"×36" — $15.75 cost
+  large: 24969,  // Indoor Wall Tapestry 50"×60" — $23.08 cost
+  sigma: 13222,  // Throw Blanket 60"×80" — $38.98 cost (used as large wall tapestry)
 }
 
 export interface PrintfulRecipient {
