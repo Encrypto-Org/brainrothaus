@@ -6,15 +6,34 @@ import { submitPrintOrder, getVariantId } from "@/lib/printful"
 // Force Node.js runtime (avoid Edge runtime networking issues)
 export const runtime = "nodejs"
 
+interface ParsedItem {
+  slug: string
+  size: string
+  quantity: number
+}
+
+/**
+ * Parse the "items" metadata string from checkout.
+ * Format: "slug|size|qty,slug|size|qty"
+ */
+function parseItemsMetadata(itemsStr: string): ParsedItem[] {
+  if (!itemsStr) return []
+  return itemsStr.split(",").map((entry) => {
+    const [slug, size, qty] = entry.split("|")
+    return { slug: slug || "", size: size || "large", quantity: parseInt(qty, 10) || 1 }
+  })
+}
+
 /**
  * Stripe webhook handler for checkout.session.completed events.
  *
  * Flow:
  * 1. Verify webhook signature (Stripe SDK local crypto — works on Vercel)
- * 2. Extract session metadata (product, size, shipping)
- * 3. Create order in Supabase brainrothaus_orders table
- * 4. Submit print order to Printful (best-effort — failure doesn't break the webhook)
- * 5. Update units_sold on the product (if product_id is present)
+ * 2. Parse items from metadata (cart format: "slug|size|qty,slug|size|qty")
+ * 3. Look up products from Supabase by slug
+ * 4. Create order in Supabase brainrothaus_orders table with order_items JSONB
+ * 5. Submit print orders to Printful (one per item — each has different art)
+ * 6. Increment units_sold on each product
  */
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
@@ -31,7 +50,6 @@ export async function POST(req: NextRequest) {
   }
 
   // --- Step 1: Verify signature ---
-  // Stripe SDK's constructEvent uses local crypto (no network call), safe on Vercel
   let event: Stripe.Event
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
@@ -52,111 +70,196 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true })
     }
 
-    const {
-      product_id,
-      product_slug,
-      size,
-      shipping_name,
-      shipping_address1,
-      shipping_address2,
-      shipping_city,
-      shipping_state,
-      shipping_zip,
-      shipping_country,
-    } = metadata
-
     const customerEmail = session.customer_email
     const amountUsd = session.amount_total ? session.amount_total / 100 : 0
 
+    // Parse items from cart-format metadata
+    const parsedItems = parseItemsMetadata(metadata.items || "")
+
+    const shippingAddress = {
+      name: metadata.shipping_name || "",
+      address1: metadata.shipping_address1 || "",
+      address2: metadata.shipping_address2 || "",
+      city: metadata.shipping_city || "",
+      state: metadata.shipping_state || "",
+      zip: metadata.shipping_zip || "",
+      country: metadata.shipping_country || "",
+    }
+
     console.log("[Webhook] checkout.session.completed:", {
       session_id: session.id,
-      product_slug,
-      size,
+      items: parsedItems,
       email: customerEmail,
       amount_usd: amountUsd,
     })
 
-    // --- Step 3: Create order in Supabase ---
+    // --- Step 3: Look up products from Supabase ---
     const supabase = createServerClient()
+    const slugs = parsedItems.map((i) => i.slug).filter(Boolean)
 
-    const shippingAddress = {
-      name: shipping_name || "",
-      address1: shipping_address1 || "",
-      address2: shipping_address2 || "",
-      city: shipping_city || "",
-      state: shipping_state || "",
-      zip: shipping_zip || "",
-      country: shipping_country || "",
+    let productMap: Map<string, { id: string; image_url: string; printful_variant_id: string | null; title: string }> = new Map()
+
+    if (slugs.length > 0) {
+      const { data: products } = await supabase
+        .from("brainrothaus_products")
+        .select("id, slug, title, image_url, printful_variant_id")
+        .in("slug", slugs)
+
+      if (products) {
+        for (const p of products) {
+          productMap.set(p.slug, {
+            id: p.id,
+            image_url: p.image_url,
+            printful_variant_id: p.printful_variant_id,
+            title: p.title,
+          })
+        }
+      }
     }
 
-    // Note: product_id omitted — mock product IDs are not real UUIDs and no
-    // products are seeded in DB yet. Product info tracked via metadata fields.
-    const { data: order, error: orderError } = await supabase
+    // Build order_items JSONB for the order
+    const orderItems = parsedItems.map((item) => {
+      const product = productMap.get(item.slug)
+      return {
+        product_slug: item.slug,
+        product_title: product?.title || item.slug,
+        product_id: product?.id || null,
+        size: item.size,
+        quantity: item.quantity,
+      }
+    })
+
+    // --- Step 4: Create order in Supabase ---
+    const baseOrder = {
+      customer_email: customerEmail,
+      shipping_address: { ...shippingAddress, items: orderItems },
+      size: parsedItems[0]?.size || null,
+      payment_method: "stripe",
+      stripe_session_id: session.id,
+      payment_status: "paid",
+      fulfillment_status: "pending",
+      amount_usd: amountUsd,
+    }
+
+    // Try with order_items column, fallback without it
+    let order: { id: string } | null = null
+    const { data: d1, error: e1 } = await supabase
       .from("brainrothaus_orders")
-      .insert({
-        customer_email: customerEmail,
-        shipping_address: {
-          ...shippingAddress,
-          product_slug: product_slug || "",
-          product_id: product_id || "",
-        },
-        size: size || null,
-        payment_method: "stripe",
-        stripe_session_id: session.id,
-        payment_status: "paid",
-        fulfillment_status: "pending",
-        amount_usd: amountUsd,
-      })
+      .insert({ ...baseOrder, order_items: orderItems })
       .select("id")
       .single()
 
-    if (orderError) {
-      console.error("[Webhook] Failed to create order in Supabase:", orderError)
-      // Return 500 so Stripe retries the webhook
-      return NextResponse.json(
-        { error: "Failed to create order" },
-        { status: 500 }
-      )
+    if (e1 && e1.message?.includes("order_items")) {
+      const { data: d2, error: e2 } = await supabase
+        .from("brainrothaus_orders")
+        .insert(baseOrder)
+        .select("id")
+        .single()
+      if (e2) {
+        console.error("[Webhook] Failed to create order in Supabase:", e2)
+        return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
+      }
+      order = d2
+    } else if (e1) {
+      console.error("[Webhook] Failed to create order in Supabase:", e1)
+      return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
+    } else {
+      order = d1
+    }
+
+    if (!order) {
+      console.error("[Webhook] Order insert returned null")
+      return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
     }
 
     console.log("[Webhook] Order created:", order.id)
 
-    // --- Step 4: Submit to Printful (best-effort) ---
-    try {
-      await submitToPrintful({
-        orderId: order.id,
-        size: size || "large",
-        productSlug: product_slug || "",
-        productId: product_id || null,
-        shippingAddress,
-        customerEmail: customerEmail || "",
-        supabase,
-      })
-    } catch (printfulError) {
-      // Log but don't fail the webhook — order is already recorded in Supabase
-      console.error("[Webhook] Printful submission failed (non-fatal):", printfulError)
+    // --- Step 5: Submit to Printful (one order per item — each has different art) ---
+    const printfulOrderIds: string[] = []
+
+    for (const item of parsedItems) {
+      const product = productMap.get(item.slug)
+      if (!product?.image_url) {
+        console.warn(`[Webhook] No image URL for ${item.slug} — skipping Printful`)
+        continue
+      }
+
+      const variantId = getVariantId(item.size, product.printful_variant_id)
+      if (!variantId) {
+        console.warn(`[Webhook] No variant for size "${item.size}" — skipping Printful for ${item.slug}`)
+        continue
+      }
+
+      try {
+        const countryCode = normalizeCountryCode(shippingAddress.country)
+        const printfulResponse = await submitPrintOrder({
+          externalId: `${order.id}-${item.slug}`,
+          recipient: {
+            name: shippingAddress.name,
+            address1: shippingAddress.address1,
+            address2: shippingAddress.address2 || undefined,
+            city: shippingAddress.city,
+            state_code: shippingAddress.state,
+            country_code: countryCode,
+            zip: shippingAddress.zip,
+            email: customerEmail || undefined,
+          },
+          variantId,
+          imageUrl: product.image_url,
+          confirm: false,
+        })
+
+        if (printfulResponse) {
+          printfulOrderIds.push(String(printfulResponse.result.id))
+        }
+      } catch (printfulError) {
+        console.error(`[Webhook] Printful failed for ${item.slug} (non-fatal):`, printfulError)
+      }
     }
 
-    // --- Step 5: Increment units_sold on the product ---
-    if (product_id) {
+    // Update order with Printful order IDs
+    if (printfulOrderIds.length > 0) {
+      const { error: updateError } = await supabase
+        .from("brainrothaus_orders")
+        .update({
+          printful_order_id: printfulOrderIds.join(","),
+          fulfillment_status: "submitted",
+        })
+        .eq("id", order.id)
+
+      if (updateError) {
+        console.error("[Webhook] Failed to update order with Printful IDs:", updateError)
+      } else {
+        console.log(`[Webhook] Printful orders [${printfulOrderIds.join(", ")}] linked to ${order.id}`)
+      }
+    }
+
+    // --- Step 6: Increment units_sold on each product ---
+    for (const item of parsedItems) {
+      const product = productMap.get(item.slug)
+      if (!product?.id) continue
+
       try {
-        // Use RPC for atomic increment. If the function doesn't exist yet,
-        // this will fail gracefully and we log it.
-        // To create the RPC:
-        //   CREATE OR REPLACE FUNCTION increment_units_sold(p_product_id uuid)
-        //   RETURNS void AS $$
-        //     UPDATE brainrothaus_products
-        //     SET units_sold = units_sold + 1
-        //     WHERE id = p_product_id;
-        //   $$ LANGUAGE sql;
+        // Direct SQL increment via RPC
         const { error: rpcError } = await supabase.rpc("increment_units_sold", {
-          p_product_id: product_id,
+          p_product_id: product.id,
         })
         if (rpcError) {
-          console.warn("[Webhook] increment_units_sold RPC failed (non-fatal):", rpcError.message)
+          // RPC might not exist yet — fallback to read-then-write
+          const { data: current } = await supabase
+            .from("brainrothaus_products")
+            .select("units_sold")
+            .eq("id", product.id)
+            .single()
+          if (current) {
+            await supabase
+              .from("brainrothaus_products")
+              .update({ units_sold: (current.units_sold || 0) + item.quantity })
+              .eq("id", product.id)
+          }
         }
-      } catch (err) {
-        console.error("[Webhook] units_sold update error (non-fatal):", err)
+      } catch {
+        // Non-fatal — stock counter is nice-to-have
       }
     }
   }
@@ -164,128 +267,16 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ received: true })
 }
 
-// --- Printful submission helper ---
-
-async function submitToPrintful(params: {
-  orderId: string
-  size: string
-  productSlug: string
-  productId: string | null
-  shippingAddress: {
-    name: string
-    address1: string
-    address2: string
-    city: string
-    state: string
-    zip: string
-    country: string
-  }
-  customerEmail: string
-  supabase: ReturnType<typeof createServerClient>
-}) {
-  const {
-    orderId,
-    size,
-    productSlug,
-    productId,
-    shippingAddress,
-    customerEmail,
-    supabase,
-  } = params
-
-  // Resolve the Printful variant ID for this size
-  // First check if the product has a specific printful_variant_id in the DB
-  let dbVariantId: string | null = null
-  if (productId) {
-    const { data: product } = await supabase
-      .from("brainrothaus_products")
-      .select("printful_variant_id, image_url")
-      .eq("id", productId)
-      .single()
-
-    if (product?.printful_variant_id) {
-      dbVariantId = product.printful_variant_id
-    }
-  }
-
-  const variantId = getVariantId(size, dbVariantId)
-  if (!variantId) {
-    console.warn(`[Printful] No variant ID found for size "${size}" — skipping Printful submission`)
-    return
-  }
-
-  // Get the product image URL for printing
-  // Try to fetch from DB first, fall back to a placeholder
-  let imageUrl: string | null = null
-  if (productId) {
-    const { data: product } = await supabase
-      .from("brainrothaus_products")
-      .select("image_url")
-      .eq("id", productId)
-      .single()
-
-    imageUrl = product?.image_url || null
-  }
-
-  if (!imageUrl) {
-    console.warn(`[Printful] No image URL for product ${productSlug || productId} — skipping Printful`)
-    return
-  }
-
-  // Map country to 2-letter ISO code (shipping_country from metadata)
-  // The checkout form should already send ISO codes, but normalize just in case
-  const countryCode = normalizeCountryCode(shippingAddress.country)
-
-  const printfulResponse = await submitPrintOrder({
-    externalId: orderId,
-    recipient: {
-      name: shippingAddress.name,
-      address1: shippingAddress.address1,
-      address2: shippingAddress.address2 || undefined,
-      city: shippingAddress.city,
-      state_code: shippingAddress.state,
-      country_code: countryCode,
-      zip: shippingAddress.zip,
-      email: customerEmail || undefined,
-    },
-    variantId,
-    imageUrl,
-    // Don't auto-confirm — let us review in Printful dashboard first
-    confirm: false,
-  })
-
-  if (printfulResponse) {
-    // Update the order with the Printful order ID
-    const printfulOrderId = String(printfulResponse.result.id)
-    const { error: updateError } = await supabase
-      .from("brainrothaus_orders")
-      .update({
-        printful_order_id: printfulOrderId,
-        fulfillment_status: "submitted",
-      })
-      .eq("id", orderId)
-
-    if (updateError) {
-      console.error("[Webhook] Failed to update order with Printful ID:", updateError)
-    } else {
-      console.log(`[Webhook] Printful order ${printfulOrderId} linked to order ${orderId}`)
-    }
-  }
-}
-
 /**
  * Normalize country input to 2-letter ISO code.
- * Handles common cases; extend as needed.
  */
 function normalizeCountryCode(country: string): string {
   if (!country) return "US"
 
   const upper = country.trim().toUpperCase()
 
-  // Already a 2-letter code
   if (upper.length === 2) return upper
 
-  // Common full names
   const countryMap: Record<string, string> = {
     "UNITED STATES": "US",
     "UNITED STATES OF AMERICA": "US",

@@ -177,43 +177,57 @@ export async function POST(req: NextRequest) {
     if (method === "encrypto") {
       const supabase = createServerClient()
 
-      // Create one order with all items in the metadata
-      const { data: order, error } = await supabase
+      const orderItemsData = items.map((item) => ({
+        product_slug: item.product_slug,
+        product_title: item.product_title || item.product_slug,
+        size: item.size,
+        price: item.price,
+        quantity: item.quantity,
+      }))
+
+      const baseOrder = {
+        customer_email: email,
+        shipping_address: {
+          name: shipping.name,
+          address1: shipping.address1,
+          address2: shipping.address2 || "",
+          city: shipping.city,
+          state: shipping.state,
+          zip: shipping.zip,
+          country: shipping.country,
+          items: orderItemsData, // backup: items stored in shipping JSONB
+        },
+        size: items[0].size,
+        payment_method: "encrypto",
+        payment_status: "pending",
+        fulfillment_status: "pending",
+        amount_usd: totalAmount,
+      }
+
+      // Try with order_items column first, fallback without it
+      let order: { id: string } | null = null
+      const { data: d1, error: e1 } = await supabase
         .from("brainrothaus_orders")
-        .insert({
-          customer_email: email,
-          shipping_address: {
-            name: shipping.name,
-            address1: shipping.address1,
-            address2: shipping.address2 || "",
-            city: shipping.city,
-            state: shipping.state,
-            zip: shipping.zip,
-            country: shipping.country,
-          },
-          size: items[0].size, // Primary size for legacy compat
-          payment_method: "encrypto",
-          payment_status: "pending",
-          fulfillment_status: "pending",
-          amount_usd: totalAmount,
-          // Store all items as JSON in metadata
-          order_items: items.map((item) => ({
-            product_slug: item.product_slug,
-            product_title: item.product_title || item.product_slug,
-            size: item.size,
-            price: item.price,
-            quantity: item.quantity,
-          })),
-        })
+        .insert({ ...baseOrder, order_items: orderItemsData })
         .select("id")
         .single()
 
-      if (error) {
-        console.error("Failed to create crypto order:", error)
-        return NextResponse.json(
-          { error: "Failed to create order" },
-          { status: 500 }
-        )
+      if (e1 && e1.message?.includes("order_items")) {
+        const { data: d2, error: e2 } = await supabase
+          .from("brainrothaus_orders")
+          .insert(baseOrder)
+          .select("id")
+          .single()
+        if (e2) {
+          console.error("Failed to create crypto order:", e2)
+          return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
+        }
+        order = d2
+      } else if (e1) {
+        console.error("Failed to create crypto order:", e1)
+        return NextResponse.json({ error: "Failed to create order" }, { status: 500 })
+      } else {
+        order = d1
       }
 
       return NextResponse.json({
